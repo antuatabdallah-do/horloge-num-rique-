@@ -1,0 +1,143 @@
+import time
+import msvcrt
+import os
+
+from models import normalize_mode
+from tick_time import tick_time
+from format_time import format_time
+from display_hour import display_hour
+from set_alarm_time import set_alarm_time
+from check_alarm import check_alarm
+from alarm_sound import init_sound, start_alarm_sound, stop_alarm_sound
+from pause_resume import toggle_pause
+
+
+fonction ask_command():
+    # objectif : lire une commande sans bloquer l’horloge
+
+    vérifier s’il existe une touche disponible (lecture non bloquante, Windows)
+
+    si aucune touche n’est disponible:
+        retourner None
+
+    sinon:
+        lire une touche (un seul caractère)
+        mettre la touche en minuscule
+
+        si la touche est dans {"p", "m", "a", "q"}:
+            retourner cette touche
+        sinon:
+            retourner None
+
+
+fonction format_alarm_display(alarm_time):
+    si alarm_time est None:
+        retourner "--:--:--"
+    sinon:
+        h, m, s = alarm_time
+        retourner "HH:MM:SS" (2 chiffres par valeur)
+
+
+fonction print_header():
+    afficher un menu fixe (une seule fois) :
+        p : pause / reprise (et stop alarme si elle sonne)
+        m : changer le mode (12h / 24h)
+        a : régler l’alarme
+        s : quitter
+
+
+fonction clear_terminal():
+    effacer le terminal :
+        - si Windows : "cls"
+        - sinon : "clear"
+
+
+fonction orchestrator():
+
+    # Affichage fixe (une seule fois)
+    print_header()
+
+    # Initialiser le système de son
+    init_sound()
+
+    # Initialisation de l’état du programme
+    récupérer l’heure locale du PC via time.localtime()
+    current_time = (heure, minute, seconde)
+
+    mode = "24h"             # mode par défaut
+    alarm_time = None        # pas d’alarme au lancement
+    paused = False           # horloge active au lancement
+
+    alarm_ringing = False    # état "alarme en cours"
+    tick = 0                 # compteur pour effet clignotant
+
+    # Boucle principale (horloge automatique)
+    boucle infinie:
+        tick = tick + 1
+
+        # Lire une commande (sans bloquer)
+        cmd = ask_command()
+
+        si cmd == "s":
+            stop_alarm_sound()
+            afficher "Fin du programme"
+            arrêter la boucle
+
+        # Si l’alarme sonne : p sert à l’arrêter (prioritaire)
+        si alarm_ringing == True ET cmd == "p":
+            alarm_ringing = False
+            stop_alarm_sound()
+            clear_terminal()
+            print_header()
+            cmd = None  # éviter d’activer pause/reprise en même temps
+
+        si cmd == "p":
+            paused = toggle_pause(paused)
+
+        si cmd == "m":
+            demander "Nouveau mode (12h / 24h)" via input
+            mode = normalize_mode(saisie)
+
+        si cmd == "a":
+            alarm_time = set_alarm_time()   # input géré dans set_alarm_time
+            clear_terminal()
+            print_header()
+
+        # Mise à jour de l’heure simulée
+        si paused == False:
+            current_time = tick_time(current_time)
+
+        # Déclenchement de l’alarme (sans print qui crée une nouvelle ligne)
+        si alarm_ringing == False ET check_alarm(current_time, alarm_time) == True:
+            alarm_ringing = True
+            alarm_time = None   # éviter répétition (alarme programmée supprimée)
+            start_alarm_sound()
+
+        # Préparer l’affichage
+        clock_str = format_time(current_time, mode)
+        alarm_str = format_alarm_display(alarm_time)
+
+        si alarm_ringing == True:
+            state_str = "ALARME"
+        sinon si paused == True:
+            state_str = "PAUSE"
+        sinon:
+            state_str = "ACTIF"
+
+        line = clock_str + " | Mode : " + mode + " | Alarme : " + alarm_str + " | Etat : " + state_str
+
+        # Message d’alarme visible sur la même ligne + commande d’arrêt
+        si alarm_ringing == True:
+            si tick est pair:
+                ajouter "   !! ALARME !! (p pour arrêter l'alarme)" à line
+            sinon:
+                ajouter "    ALARME    (p pour arrêter l'alarme)" à line
+
+        # Afficher la ligne (mise à jour d’une seule ligne)
+        display_hour(line)
+
+        attendre 1 seconde (time.sleep(1))
+
+
+fonction main():
+    lancer orchestrator()
